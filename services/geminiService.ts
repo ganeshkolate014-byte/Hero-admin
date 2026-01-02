@@ -17,21 +17,53 @@ export const testGeminiConnection = async (): Promise<boolean> => {
 };
 
 export const generateAnimeDetails = async (animeTitle: string): Promise<Partial<SlideData>> => {
+  let jikanData: any = {};
+  
+  // 1. Try Jikan API for Metadata (Backup for ranking/episodes)
+  try {
+    const jikanRes = await fetch(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(animeTitle)}&limit=1`);
+    if (jikanRes.ok) {
+      const data = await jikanRes.json();
+      const anime = data.data?.[0];
+      if (anime) {
+        jikanData = {
+           rank: anime.rank || 0,
+           episodes: {
+             eps: anime.episodes || 0,
+             sub: anime.episodes || 0,
+             dub: 0 
+           },
+           aired: anime.year ? String(anime.year) : (anime.aired?.string || ''),
+           duration: anime.duration || ''
+        };
+      }
+    }
+  } catch (e) {
+    console.warn("Jikan API failed:", e);
+  }
+
+  // 2. Use Gemini with Search to find Logo and specific details
   try {
     const prompt = `
-      I need details for the anime "${animeTitle}" to populate a JSON object for a streaming site.
-      Please analyze the title and return a JSON object.
+      I need details for the anime "${animeTitle}".
       
+      Task:
+      1. Use Google Search to find a URL for a "transparent text logo png" or "clear logo" for "${animeTitle}".
+         - Look for images that are primarily the title text with a transparent background.
+         - Common sources might be fanart databases or wikis.
+         - If found, put the direct image URL in the 'logo' field.
+      2. Generate the following metadata JSON.
+
       Requirements:
       - 'synopsis': A short, engaging summary (max 3 sentences).
       - 'alternativeTitle': The Japanese or other common title.
       - 'id': A URL-friendly slug based on the title (e.g., 'blue-lock').
-      - 'keywords': An array of 1 keyword which is the slug (e.g., ['blue-lock']).
+      - 'keywords': An array of 1 keyword which is the slug.
       - 'type': TV, MOVIE, OVA, or ONA.
       - 'duration': Average duration (e.g., "24m").
       - 'aired': Release year or season (e.g., "2023").
       - 'episodes': Estimate current counts for sub, dub, and total eps.
-      - 'rank': Estimate the actual global popularity rank (integer) based on MyAnimeList or similar databases (e.g. 1 for most popular, 100+ for niche).
+      - 'rank': Estimate global popularity rank (1-1000).
       
       Strictly return JSON.
     `;
@@ -40,6 +72,7 @@ export const generateAnimeDetails = async (animeTitle: string): Promise<Partial<
       model: "gemini-3-flash-preview",
       contents: prompt,
       config: {
+        tools: [{ googleSearch: {} }],
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -51,6 +84,7 @@ export const generateAnimeDetails = async (animeTitle: string): Promise<Partial<
             duration: { type: Type.STRING },
             aired: { type: Type.STRING },
             rank: { type: Type.INTEGER },
+            logo: { type: Type.STRING },
             keywords: { 
               type: Type.ARRAY,
               items: { type: Type.STRING }
@@ -69,7 +103,16 @@ export const generateAnimeDetails = async (animeTitle: string): Promise<Partial<
     });
 
     if (response.text) {
-      return JSON.parse(response.text) as Partial<SlideData>;
+      const geminiData = JSON.parse(response.text) as Partial<SlideData>;
+      
+      // Merge Jikan data (priority to Gemini for text, Jikan for numbers if available)
+      return {
+        ...geminiData,
+        rank: jikanData.rank || geminiData.rank,
+        aired: jikanData.aired || geminiData.aired,
+        // Keep Gemini logo if found, otherwise empty
+        logo: geminiData.logo || ''
+      };
     }
     throw new Error("No data returned from Gemini");
 
