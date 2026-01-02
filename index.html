@@ -3,9 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>Anime Admin</title>
+    <title>Anime Admin - ROG Edition</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script>
       tailwind.config = {
         theme: {
@@ -15,10 +15,10 @@
             },
             colors: {
               bg: '#000000',
-              surface: '#0a0a0a',
-              border: '#222222',
-              input: '#111111',
-              accent: '#ffffff',
+              surface: '#0f0f0f',
+              border: '#1f1f1f',
+              input: '#151515',
+              accent: '#e61919', // ROG Red
             }
           }
         }
@@ -29,6 +29,16 @@
         background-color: #000000;
         color: #f4f4f5;
         -webkit-tap-highlight-color: transparent;
+      }
+      ::-webkit-scrollbar {
+        width: 4px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #000;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #e61919;
+        border-radius: 10px;
       }
     </style>
   <script type="importmap">

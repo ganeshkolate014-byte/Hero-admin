@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { SlideData, HeroSlidesJSON } from './types';
+import React, { useState, useEffect } from 'react';
+import { SlideData } from './types';
 import { uploadToCloudinary, setCloudConfig, getCloudConfig } from './services/cloudinaryService';
 import { generateAnimeDetails, testGeminiConnection } from './services/geminiService';
 import { Input, TextArea } from './components/Input';
@@ -11,7 +11,8 @@ import {
   SparklesIcon, 
   TrashIcon, 
   Cog6ToothIcon,
-  HomeIcon
+  HomeIcon,
+  PlusIcon
 } from '@heroicons/react/24/solid';
 
 const INITIAL_STATE: SlideData = {
@@ -35,7 +36,6 @@ type ConfigStatus = 'idle' | 'testing' | 'success' | 'error';
 type View = 'home' | 'admin';
 
 export default function App() {
-  // Main App State
   const [slides, setSlides] = useState<SlideData[]>([]);
   const [formData, setFormData] = useState<SlideData>(INITIAL_STATE);
   const [isUploading, setIsUploading] = useState(false);
@@ -44,8 +44,6 @@ export default function App() {
   const [localPreview, setLocalPreview] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState('');
   const [activeTab, setActiveTab] = useState<Tab>('editor');
-
-  // View & Config State
   const [view, setView] = useState<View>('home');
   const [isConfigured, setIsConfigured] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -54,19 +52,16 @@ export default function App() {
   const [geminiStatus, setGeminiStatus] = useState<ConfigStatus>('idle');
   const [publishedUrl, setPublishedUrl] = useState('');
   
-  // Load Data
   useEffect(() => {
     const saved = localStorage.getItem('hero_slides');
     if (saved) {
       try { setSlides(JSON.parse(saved)); } catch (e) {}
     }
     
-    // Check Config
     const config = getCloudConfig();
     const savedPublishedUrl = localStorage.getItem('hero_published_url') || '';
     setPublishedUrl(savedPublishedUrl);
 
-    // If we have permanent or saved config, we are good to go
     if (config.cloudName && config.uploadPreset) {
        setCloudName(config.cloudName);
        setUploadPreset(config.uploadPreset);
@@ -80,23 +75,17 @@ export default function App() {
   const checkGemini = async (silent = false) => {
     if (!silent) setGeminiStatus('testing');
     const working = await testGeminiConnection();
-    if (working) {
-      setGeminiStatus('success');
-    } else {
-      setGeminiStatus('error');
-    }
+    setGeminiStatus(working ? 'success' : 'error');
   };
 
   const saveSettings = () => {
     if (!cloudName || !uploadPreset) {
-      alert("Cloudinary configuration is required.");
+      alert("Configuration required.");
       return;
     }
-    
     setCloudConfig(cloudName, uploadPreset);
     setIsConfigured(true);
     setShowSettings(false);
-    setView('home');
   };
 
   useEffect(() => {
@@ -106,10 +95,9 @@ export default function App() {
   const copyPublishedUrl = () => {
     if (!publishedUrl) return;
     navigator.clipboard.writeText(publishedUrl);
-    alert('Copied to clipboard!');
+    alert('Copied!');
   };
 
-  // Handlers
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     if (name.includes('.')) {
@@ -136,7 +124,7 @@ export default function App() {
           poster: response.secure_url,
           posterType: response.resource_type === 'video' ? 'video' : 'image'
         }));
-        setStatusMsg('Uploaded');
+        setStatusMsg('Media Uploaded');
       } catch (error) {
         alert('Upload failed: ' + error);
       } finally {
@@ -147,7 +135,7 @@ export default function App() {
   };
 
   const handleAutoFill = async () => {
-    if (!formData.title) return alert("Enter title");
+    if (!formData.title) return alert("Enter title first");
     setIsAutoFilling(true);
     try {
       const details = await generateAnimeDetails(formData.title);
@@ -156,9 +144,9 @@ export default function App() {
         poster: prev.poster, posterType: prev.posterType,
         episodes: { ...prev.episodes, ...(details.episodes || {}) }
       }));
-      setStatusMsg('Filled');
+      setStatusMsg('AI Synced');
     } catch (error) {
-      alert("AI Failed: " + (error as Error).message);
+      alert("AI Sync Error: " + (error as Error).message);
     } finally {
       setIsAutoFilling(false);
       setTimeout(() => setStatusMsg(''), 2000);
@@ -166,7 +154,7 @@ export default function App() {
   };
 
   const addSlide = () => {
-    if (!formData.title || !formData.poster) return alert("Title & Poster required");
+    if (!formData.title || !formData.poster) return alert("Title & Media required");
     const index = slides.findIndex(s => s.id === formData.id);
     if (index >= 0) {
       const newSlides = [...slides];
@@ -177,7 +165,7 @@ export default function App() {
     }
     setFormData(INITIAL_STATE);
     setLocalPreview(null);
-    setStatusMsg('Saved');
+    setStatusMsg('Saved to Library');
     setTimeout(() => setStatusMsg(''), 2000);
     if (window.innerWidth < 768) setActiveTab('library');
   };
@@ -192,104 +180,73 @@ export default function App() {
   };
   
   const publishToCloudinary = async () => {
-    if (slides.length === 0) return alert("Add at least one slide to publish.");
+    if (slides.length === 0) return alert("Library is empty.");
     setIsPublishing(true);
-    setStatusMsg('Publishing...');
+    setStatusMsg('Syncing Cloud...');
     try {
       const jsonString = JSON.stringify({ success: true, data: { spotlight: slides } }, null, 2);
       const blob = new Blob([jsonString], { type: 'application/json' });
       const file = new File([blob], 'heroslides.json', { type: 'application/json' });
-
-      const response = await uploadToCloudinary(file, {
-        publicId: 'heroslides_data'
-      });
-
-      const url = response.secure_url;
-      setPublishedUrl(url);
-      localStorage.setItem('hero_published_url', url);
-      setStatusMsg('Published!');
-
+      const response = await uploadToCloudinary(file, { publicId: 'heroslides_data' });
+      setPublishedUrl(response.secure_url);
+      localStorage.setItem('hero_published_url', response.secure_url);
+      setStatusMsg('Cloud Synced!');
     } catch (error) {
-      console.error(error);
-      alert('Failed to publish JSON to Cloudinary. Check console for details.');
-      setStatusMsg('Error');
+      alert('Sync failed.');
     } finally {
       setIsPublishing(false);
       setTimeout(() => setStatusMsg(''), 3000);
     }
   };
 
-  // Render Setup Screen (only if forced via settings or not configured)
   if (!isConfigured || showSettings) {
     return (
       <div className="h-dvh w-screen bg-bg text-zinc-300 flex flex-col items-center justify-center p-6 z-50 fixed inset-0">
-        <div className="w-full max-w-sm bg-surface border border-border rounded-xl p-6 shadow-2xl overflow-y-auto max-h-full">
-          <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
-            <Cog6ToothIcon className="w-6 h-6 text-zinc-400" />
-            System Config
+        <div className="w-full max-w-sm bg-surface border border-accent/20 rounded-sm p-8 shadow-[0_0_50px_rgba(230,25,25,0.1)]">
+          <h2 className="text-sm font-black text-white mb-8 flex items-center gap-3 tracking-widest uppercase">
+            <Cog6ToothIcon className="w-5 h-5 text-accent" />
+            System Console
           </h2>
           
-          <div className="space-y-5">
-             <div className="space-y-3">
-                <div className="flex items-center gap-2 text-xs font-bold text-zinc-500 uppercase">
-                    <CloudArrowUpIcon className="w-4 h-4" />
-                    Cloudinary
-                </div>
+          <div className="space-y-6">
+             <div className="space-y-4">
+                <div className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">Storage (Cloudinary)</div>
                 <input 
                   value={cloudName}
                   onChange={e => setCloudName(e.target.value)}
-                  className="w-full bg-input border border-border text-white px-3 py-2 rounded-lg text-sm focus:border-white outline-none placeholder-zinc-700"
+                  className="w-full bg-input border border-border text-white px-4 py-3 rounded-sm text-xs outline-none focus:border-accent"
                   placeholder="Cloud Name"
                 />
                 <input 
                   value={uploadPreset}
                   onChange={e => setUploadPreset(e.target.value)}
-                  className="w-full bg-input border border-border text-white px-3 py-2 rounded-lg text-sm focus:border-white outline-none placeholder-zinc-700"
+                  className="w-full bg-input border border-border text-white px-4 py-3 rounded-sm text-xs outline-none focus:border-accent"
                   placeholder="Upload Preset"
                 />
              </div>
 
-             {publishedUrl && (
-              <div className="space-y-3 pt-4 border-t border-zinc-900">
-                  <label className="text-xs font-bold text-zinc-500 uppercase">Live Data URL</label>
-                  <div className="flex gap-2">
-                      <input 
-                        readOnly
-                        value={publishedUrl}
-                        className="flex-1 bg-input border border-border text-zinc-400 px-3 py-2 rounded-lg text-xs outline-none"
-                      />
-                      <button 
-                          onClick={copyPublishedUrl}
-                          className="px-3 rounded-lg border border-border text-zinc-400 hover:text-white"
-                      >
-                         <ClipboardDocumentIcon className="w-4 h-4" />
-                      </button>
-                  </div>
-              </div>
-             )}
-
-             <div className="pt-4 border-t border-zinc-900">
-                <div className="flex items-center justify-between bg-input border border-border rounded-lg p-3">
-                   <div className="flex items-center gap-2">
-                       <div className={`w-2 h-2 rounded-full ${geminiStatus === 'success' ? 'bg-green-500' : geminiStatus === 'error' ? 'bg-red-500' : 'bg-yellow-500'}`}></div>
-                       <span className="text-xs font-medium text-zinc-400">Gemini AI</span>
+             <div className="pt-6 border-t border-border">
+                <div className="flex items-center justify-between bg-input border border-border rounded-sm p-4">
+                   <div className="flex items-center gap-3">
+                       <div className={`w-2 h-2 rounded-full shadow-[0_0_8px] ${geminiStatus === 'success' ? 'bg-green-500 shadow-green-500/50' : geminiStatus === 'error' ? 'bg-accent shadow-accent/50' : 'bg-yellow-500 shadow-yellow-500/50'}`}></div>
+                       <span className="text-[10px] font-bold text-zinc-500 uppercase">AI Processor</span>
                    </div>
-                   <button onClick={() => checkGemini()} className="text-xs text-zinc-500 hover:text-white underline">
-                     Test AI
+                   <button onClick={() => checkGemini()} className="text-[10px] text-accent font-bold uppercase tracking-tighter hover:underline">
+                     Re-Test
                    </button>
                 </div>
              </div>
 
              <button 
                onClick={saveSettings}
-               className="w-full py-3 rounded-lg font-bold text-sm mt-2 transition-colors bg-white text-black hover:bg-zinc-200"
+               className="w-full py-4 rounded-sm font-black text-xs uppercase tracking-widest transition-all bg-accent text-white hover:bg-red-700 shadow-[0_0_15px_rgba(230,25,25,0.2)]"
              >
-               {isConfigured ? 'Save Changes' : 'Initialize App'}
+               Apply Config
              </button>
 
              {isConfigured && (
-               <button onClick={() => setShowSettings(false)} className="w-full py-2 text-zinc-500 text-xs hover:text-white">
-                 Close Settings
+               <button onClick={() => setShowSettings(false)} className="w-full py-2 text-zinc-600 text-[10px] font-bold uppercase tracking-widest hover:text-white transition-colors">
+                 Exit Console
                </button>
              )}
           </div>
@@ -298,7 +255,6 @@ export default function App() {
     );
   }
 
-  // Render Home Screen
   if (view === 'home') {
     return (
       <HomePage 
@@ -309,136 +265,132 @@ export default function App() {
     );
   }
 
-  // Render Admin Panel
   return (
     <div className="flex flex-col h-dvh bg-bg text-zinc-300 font-sans">
-      
-      <header className="h-14 flex items-center justify-between px-4 border-b border-border bg-bg z-20 shrink-0">
-        <div className="flex items-center gap-4">
-          <button onClick={() => setView('home')} className="text-zinc-400 hover:text-white" title="Go to Home">
+      <header className="h-14 flex items-center justify-between px-6 border-b border-border bg-bg/80 backdrop-blur-md z-20 shrink-0">
+        <div className="flex items-center gap-6">
+          <button onClick={() => setView('home')} className="text-zinc-500 hover:text-accent transition-colors">
             <HomeIcon className="w-5 h-5" />
           </button>
-          <h1 className="font-bold text-white text-lg tracking-tight">Admin Panel</h1>
+          <div className="h-4 w-px bg-border"></div>
+          <h1 className="font-black text-white text-xs uppercase tracking-[0.3em]">Console <span className="text-accent">Admin</span></h1>
         </div>
-        <div className="flex items-center gap-3">
-          {statusMsg && <span className="text-xs text-green-500 font-mono">{statusMsg}</span>}
-          <button onClick={publishToCloudinary} disabled={isPublishing} className="text-zinc-400 hover:text-green-400 disabled:text-zinc-700 disabled:cursor-not-allowed" title="Publish to Cloud">
-             {isPublishing ? <div className="w-5 h-5 border-2 border-zinc-600 border-t-zinc-400 rounded-full animate-spin" /> : <CloudArrowUpIcon className="w-5 h-5" />}
+        <div className="flex items-center gap-5">
+          {statusMsg && <span className="text-[10px] text-accent font-bold uppercase tracking-widest animate-pulse">{statusMsg}</span>}
+          <button onClick={publishToCloudinary} disabled={isPublishing} className="text-zinc-500 hover:text-accent disabled:opacity-30" title="Publish Cloud">
+             {isPublishing ? <div className="w-4 h-4 border-2 border-accent/20 border-t-accent rounded-full animate-spin" /> : <CloudArrowUpIcon className="w-5 h-5" />}
           </button>
-          <button onClick={() => setShowSettings(true)} className="text-zinc-400 hover:text-white">
+          <button onClick={() => setShowSettings(true)} className="text-zinc-500 hover:text-accent">
             <Cog6ToothIcon className="w-5 h-5" />
           </button>
-          <button onClick={downloadJSON} className="text-white hover:text-primary transition-colors">
+          <button onClick={downloadJSON} className="text-zinc-500 hover:text-white">
             <ArrowDownTrayIcon className="w-5 h-5" />
           </button>
         </div>
       </header>
 
       <div className="md:hidden grid grid-cols-2 border-b border-border shrink-0">
-        <button 
-          onClick={() => setActiveTab('editor')} 
-          className={`py-3 text-xs font-semibold uppercase tracking-wide ${activeTab === 'editor' ? 'text-white border-b-2 border-white' : 'text-zinc-600'}`}
-        >
-          Editor
-        </button>
-        <button 
-          onClick={() => setActiveTab('library')} 
-          className={`py-3 text-xs font-semibold uppercase tracking-wide ${activeTab === 'library' ? 'text-white border-b-2 border-white' : 'text-zinc-600'}`}
-        >
-          Library ({slides.length})
-        </button>
+        <button onClick={() => setActiveTab('editor')} className={`py-4 text-[10px] font-black uppercase tracking-widest ${activeTab === 'editor' ? 'text-accent border-b-2 border-accent' : 'text-zinc-600'}`}>Editor</button>
+        <button onClick={() => setActiveTab('library')} className={`py-4 text-[10px] font-black uppercase tracking-widest ${activeTab === 'library' ? 'text-accent border-b-2 border-accent' : 'text-zinc-600'}`}>Library ({slides.length})</button>
       </div>
 
       <div className="flex-1 overflow-hidden flex relative">
-        
-        <div className={`w-full md:w-[400px] flex flex-col overflow-y-auto ${activeTab === 'editor' ? 'block' : 'hidden md:flex'} border-r border-border pb-10`}>
-          <div className="p-4 flex flex-col gap-4">
-            
-            <div className="w-full aspect-video bg-input rounded-lg overflow-hidden border border-border relative flex items-center justify-center group">
+        <div className={`w-full md:w-[450px] flex flex-col overflow-y-auto ${activeTab === 'editor' ? 'block' : 'hidden md:flex'} border-r border-border pb-10`}>
+          <div className="p-6 flex flex-col gap-6">
+            <div className="w-full aspect-video bg-input rounded-sm overflow-hidden border border-border relative flex items-center justify-center group shadow-inner">
               {(localPreview || formData.poster) ? (
                 formData.posterType === 'video' || (localPreview && !formData.poster && localPreview.startsWith('blob')) ? 
                   <video src={localPreview || formData.poster} className="w-full h-full object-cover" autoPlay muted loop /> :
                   <img src={localPreview || formData.poster} className="w-full h-full object-cover" alt="" />
               ) : (
-                <span className="text-xs text-zinc-600">No Media</span>
+                <div className="flex flex-col items-center gap-2">
+                   <CloudArrowUpIcon className="w-8 h-8 text-zinc-800" />
+                   <span className="text-[10px] font-bold text-zinc-700 uppercase tracking-widest">No Media Asset</span>
+                </div>
               )}
-              {isUploading && <div className="absolute inset-0 bg-black/50 flex items-center justify-center text-xs text-white z-20">Uploading...</div>}
+              {isUploading && <div className="absolute inset-0 bg-black/80 flex items-center justify-center text-[10px] font-black text-accent tracking-[0.2em] uppercase z-20">Uploading...</div>}
             </div>
 
             <div>
-              <div className="flex gap-2 mb-4">
+              <div className="flex gap-3 mb-6">
                 <div className="flex-1">
-                   <label className="text-zinc-500 text-xs font-medium pl-1 block mb-1.5">Title</label>
-                   <input className="w-full bg-input border border-border text-white px-3 py-3 rounded-lg text-sm focus:border-white focus:outline-none placeholder-zinc-700"
-                    placeholder="Anime Name" name="title" value={formData.title} onChange={handleInputChange} 
+                   <label className="text-zinc-600 text-[10px] font-black uppercase tracking-widest pl-1 block mb-2">Subject Title</label>
+                   <input className="w-full bg-input border border-border text-white px-4 py-4 rounded-sm text-sm focus:border-accent focus:outline-none placeholder-zinc-800 font-medium"
+                    placeholder="Enter Title..." name="title" value={formData.title} onChange={handleInputChange} 
                    />
                 </div>
-                <button onClick={handleAutoFill} disabled={isAutoFilling} className="mt-6 w-12 h-11 bg-input border border-border rounded-lg flex items-center justify-center text-zinc-400 hover:text-white shrink-0">
-                   {isAutoFilling ? "..." : <SparklesIcon className="w-5 h-5" />}
+                <button onClick={handleAutoFill} disabled={isAutoFilling} className="mt-7 w-14 h-14 bg-accent/5 border border-accent/20 rounded-sm flex items-center justify-center text-accent hover:bg-accent hover:text-white transition-all shrink-0 shadow-[0_0_10px_rgba(230,25,25,0.05)]">
+                   {isAutoFilling ? <div className="w-4 h-4 border-2 border-accent/20 border-t-accent rounded-full animate-spin" /> : <SparklesIcon className="w-6 h-6" />}
                 </button>
               </div>
 
-              <Input label="Slug / ID" name="id" value={formData.id} onChange={handleInputChange} />
+              <div className="grid grid-cols-2 gap-4">
+                <Input label="Slug Identifier" name="id" value={formData.id} onChange={handleInputChange} />
+                <Input label="Ranking" type="number" name="rank" value={formData.rank} onChange={handleInputChange} />
+              </div>
               
               <div className="grid grid-cols-2 gap-4">
-                <Input label="Rank" type="number" name="rank" value={formData.rank} onChange={handleInputChange} />
-                <Input label="Type" name="type" value={formData.type} onChange={handleInputChange} />
+                <Input label="Format Type" name="type" value={formData.type} onChange={handleInputChange} />
+                <Input label="Visual Grade" name="quality" value={formData.quality} onChange={handleInputChange} />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
-                <Input label="Quality" name="quality" value={formData.quality} onChange={handleInputChange} />
-                <Input label="Keyword" name="keywords" value={formData.keywords[0] || ''} onChange={handleInputChange} />
+                <Input label="Primary Tag" name="keywords" value={formData.keywords[0] || ''} onChange={handleInputChange} />
+                <Input label="Run Time" name="duration" value={formData.duration} onChange={handleInputChange} />
               </div>
 
-              <div className="mb-4">
-                <label className="text-zinc-500 text-xs font-medium pl-1 mb-1.5 block">Episodes (Sub / Dub / Total)</label>
+              <div className="mb-6">
+                <label className="text-zinc-600 text-[10px] font-black uppercase tracking-widest pl-1 mb-2 block">Data Nodes (Sub / Dub / Tot)</label>
                 <div className="grid grid-cols-3 gap-2">
-                  <input type="number" placeholder="Sub" name="episodes.sub" value={formData.episodes.sub} onChange={handleInputChange} className="bg-input border border-border text-white px-3 py-3 rounded-lg text-sm focus:border-white outline-none text-center" />
-                  <input type="number" placeholder="Dub" name="episodes.dub" value={formData.episodes.dub} onChange={handleInputChange} className="bg-input border border-border text-white px-3 py-3 rounded-lg text-sm focus:border-white outline-none text-center" />
-                  <input type="number" placeholder="Total" name="episodes.eps" value={formData.episodes.eps} onChange={handleInputChange} className="bg-input border border-border text-white px-3 py-3 rounded-lg text-sm focus:border-white outline-none text-center" />
+                  <input type="number" name="episodes.sub" value={formData.episodes.sub} onChange={handleInputChange} className="bg-input border border-border text-white px-4 py-4 rounded-sm text-xs focus:border-accent outline-none text-center font-bold" />
+                  <input type="number" name="episodes.dub" value={formData.episodes.dub} onChange={handleInputChange} className="bg-input border border-border text-white px-4 py-4 rounded-sm text-xs focus:border-accent outline-none text-center font-bold" />
+                  <input type="number" name="episodes.eps" value={formData.episodes.eps} onChange={handleInputChange} className="bg-input border border-border text-white px-4 py-4 rounded-sm text-xs focus:border-accent outline-none text-center font-bold" />
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <Input label="Duration" name="duration" value={formData.duration} onChange={handleInputChange} />
-                <Input label="Aired" name="aired" value={formData.aired} onChange={handleInputChange} />
-              </div>
-
-              <TextArea label="Synopsis" name="synopsis" value={formData.synopsis} onChange={handleInputChange} />
+              <TextArea label="Briefing / Synopsis" name="synopsis" value={formData.synopsis} onChange={handleInputChange} />
               
-              <div className="flex gap-2 mt-2">
-                 <label className="flex-1 bg-input border border-border text-center py-3 rounded-lg text-sm cursor-pointer hover:bg-zinc-900 text-zinc-400">
+              <div className="flex gap-3 mt-4">
+                 <label className="flex-1 bg-input border border-border text-center py-4 rounded-sm text-[10px] font-black uppercase tracking-widest cursor-pointer hover:border-accent hover:text-accent transition-all text-zinc-600">
                     <input type="file" className="hidden" onChange={handleFileChange} accept="image/*,video/*" />
-                    {isUploading ? "Uploading..." : "Upload Media"}
+                    Upload Media
                  </label>
-                 <button onClick={addSlide} className="flex-1 bg-white text-black py-3 rounded-lg font-bold text-sm">
-                    Save
+                 <button onClick={addSlide} className="flex-1 bg-accent text-white py-4 rounded-sm font-black text-[10px] uppercase tracking-widest hover:bg-red-700 transition-all shadow-[0_0_15px_rgba(230,25,25,0.2)]">
+                    Save Record
                  </button>
               </div>
             </div>
           </div>
         </div>
 
-        <div className={`flex-1 overflow-y-auto bg-surface p-4 ${activeTab === 'library' ? 'block' : 'hidden md:block'}`}>
-           <div className="grid gap-3">
+        <div className={`flex-1 overflow-y-auto bg-surface p-6 ${activeTab === 'library' ? 'block' : 'hidden md:block'}`}>
+           <div className="grid gap-4 max-w-4xl mx-auto">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">Global Asset Library</div>
+                <div className="text-[10px] font-black text-accent uppercase tracking-widest">{slides.length} Units Active</div>
+              </div>
               {slides.map(slide => (
-                <div key={slide.id} onClick={() => { setFormData(slide); setLocalPreview(null); setActiveTab('editor'); }} className="flex gap-3 p-3 bg-bg border border-border rounded-lg items-center cursor-pointer hover:border-zinc-700">
-                   <div className="w-16 h-10 bg-input rounded overflow-hidden shrink-0 relative">
+                <div key={slide.id} onClick={() => { setFormData(slide); setLocalPreview(null); setActiveTab('editor'); }} className="flex gap-5 p-4 bg-bg border border-border rounded-sm items-center cursor-pointer hover:border-accent/40 group transition-all">
+                   <div className="w-24 h-14 bg-input rounded-sm overflow-hidden shrink-0 relative border border-border group-hover:border-accent/30">
                       {slide.posterType === 'video' ? <video src={slide.poster} className="w-full h-full object-cover" /> : <img src={slide.poster} className="w-full h-full object-cover" />}
                    </div>
                    <div className="flex-1 min-w-0">
-                      <h4 className="text-white text-sm font-medium truncate">{slide.title}</h4>
-                      <p className="text-zinc-500 text-xs">{slide.id}</p>
+                      <h4 className="text-white text-xs font-black uppercase tracking-wider truncate group-hover:text-accent transition-colors">{slide.title}</h4>
+                      <p className="text-zinc-600 text-[10px] font-mono tracking-tighter mt-1">{slide.id} | RANK #{slide.rank}</p>
                    </div>
-                   <button onClick={(e) => { e.stopPropagation(); if(confirm('Delete?')) setSlides(s => s.filter(i => i.id !== slide.id)); }} className="p-2 text-zinc-600 hover:text-red-500">
+                   <button onClick={(e) => { e.stopPropagation(); if(confirm('Erase Record?')) setSlides(s => s.filter(i => i.id !== slide.id)); }} className="p-3 text-zinc-700 hover:text-accent transition-colors">
                       <TrashIcon className="w-4 h-4" />
                    </button>
                 </div>
               ))}
-              {slides.length === 0 && <div className="text-center text-zinc-600 text-sm mt-10">No slides yet.</div>}
+              {slides.length === 0 && (
+                <div className="flex flex-col items-center justify-center h-64 border-2 border-dashed border-border rounded-sm">
+                   <PlusIcon className="w-8 h-8 text-zinc-800 mb-2" />
+                   <p className="text-zinc-700 text-[10px] font-black uppercase tracking-widest">Library Empty</p>
+                </div>
+              )}
            </div>
         </div>
-
       </div>
     </div>
   );
