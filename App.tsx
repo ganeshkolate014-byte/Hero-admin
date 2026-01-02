@@ -25,7 +25,6 @@ const INITIAL_STATE: SlideData = {
   id: '',
   poster: '',
   posterType: 'image',
-  logo: '',
   rank: 1,
   type: 'TV',
   quality: 'HD',
@@ -45,6 +44,7 @@ export default function App() {
   const [slides, setSlides] = useState<SlideData[]>([]);
   const [formData, setFormData] = useState<SlideData>(INITIAL_STATE);
   const [isUploading, setIsUploading] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
   const [isAutoFilling, setIsAutoFilling] = useState(false);
   const [localPreview, setLocalPreview] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState('');
@@ -56,11 +56,8 @@ export default function App() {
   const [cloudName, setCloudName] = useState('');
   const [uploadPreset, setUploadPreset] = useState('');
   const [geminiStatus, setGeminiStatus] = useState<ConfigStatus>('idle');
+  const [publishedUrl, setPublishedUrl] = useState('');
   
-  // Endpoint Config
-  const [targetEndpoint, setTargetEndpoint] = useState('');
-  const [endpointKey, setEndpointKey] = useState('');
-  const [endpointStatus, setEndpointStatus] = useState<ConfigStatus>('idle');
 
   // Load Data
   useEffect(() => {
@@ -71,17 +68,13 @@ export default function App() {
     
     // Check Config
     const config = getCloudConfig();
-    const savedEndpoint = localStorage.getItem('hero_endpoint') || '';
-    const savedKey = localStorage.getItem('hero_endpoint_key') || '';
+    const savedPublishedUrl = localStorage.getItem('hero_published_url') || '';
+    setPublishedUrl(savedPublishedUrl);
 
     if (config.cloudName && config.uploadPreset) {
        setCloudName(config.cloudName);
        setUploadPreset(config.uploadPreset);
-       setTargetEndpoint(savedEndpoint);
-       setEndpointKey(savedKey);
-       
        checkGemini(true);
-       if (savedEndpoint) checkEndpoint(savedEndpoint, savedKey, true);
     } else {
        setShowSettings(true);
     }
@@ -99,39 +92,13 @@ export default function App() {
     }
   };
 
-  const checkEndpoint = async (url: string, key: string, silent = false) => {
-    if (!url) return;
-    if (!silent) setEndpointStatus('testing');
-    
-    try {
-      const res = await fetch(url, {
-        method: 'GET',
-        headers: key ? { 'x-api-key': key, 'Authorization': `Bearer ${key}` } : {}
-      });
-      
-      if (res.ok || res.status === 404) {
-        setEndpointStatus('success');
-      } else {
-        throw new Error(res.statusText);
-      }
-    } catch (e) {
-      setEndpointStatus('error');
-    }
-  };
-
   const saveSettings = () => {
     if (!cloudName || !uploadPreset) {
       alert("Cloudinary configuration is required.");
       return;
     }
     
-    if (targetEndpoint && endpointStatus === 'error') {
-       if(!confirm("Endpoint check failed. Save anyway?")) return;
-    }
-
     setCloudConfig(cloudName, uploadPreset);
-    localStorage.setItem('hero_endpoint', targetEndpoint);
-    localStorage.setItem('hero_endpoint_key', endpointKey);
 
     if (geminiStatus === 'success') {
       setIsConfigured(true);
@@ -194,7 +161,7 @@ export default function App() {
       }));
       setStatusMsg('Filled');
     } catch (error) {
-      alert("AI Failed");
+      alert("AI Failed: " + (error as Error).message);
     } finally {
       setIsAutoFilling(false);
       setTimeout(() => setStatusMsg(''), 2000);
@@ -227,26 +194,32 @@ export default function App() {
     a.click();
   };
   
-  const pushToEndpoint = async () => {
-    if (!targetEndpoint) return alert("No endpoint configured in settings.");
-    
-    setStatusMsg('Pushing...');
+  const publishToCloudinary = async () => {
+    if (slides.length === 0) return alert("Add at least one slide to publish.");
+    setIsPublishing(true);
+    setStatusMsg('Publishing...');
     try {
-        const res = await fetch(targetEndpoint, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                ...(endpointKey ? { 'x-api-key': endpointKey, 'Authorization': `Bearer ${endpointKey}` } : {})
-            },
-            body: JSON.stringify({ spotlight: slides })
-        });
-        if (res.ok) setStatusMsg('Synced');
-        else throw new Error(res.statusText);
-    } catch (e) {
-        alert("Sync failed");
-        setStatusMsg('Error');
+      const jsonString = JSON.stringify({ success: true, data: { spotlight: slides } }, null, 2);
+      const blob = new Blob([jsonString], { type: 'application/json' });
+      const file = new File([blob], 'heroslides.json', { type: 'application/json' });
+
+      const response = await uploadToCloudinary(file, {
+        publicId: 'heroslides_data'
+      });
+
+      const url = response.secure_url;
+      setPublishedUrl(url);
+      localStorage.setItem('hero_published_url', url);
+      setStatusMsg('Published!');
+
+    } catch (error) {
+      console.error(error);
+      alert('Failed to publish JSON to Cloudinary. Check console for details.');
+      setStatusMsg('Error');
+    } finally {
+      setIsPublishing(false);
+      setTimeout(() => setStatusMsg(''), 3000);
     }
-    setTimeout(() => setStatusMsg(''), 3000);
   };
 
   // Render Setup Screen
@@ -279,38 +252,26 @@ export default function App() {
                 />
              </div>
 
-             <div className="space-y-3 pt-2 border-t border-zinc-900">
-                <div className="flex items-center gap-2 text-xs font-bold text-zinc-500 uppercase">
-                    <GlobeAltIcon className="w-4 h-4" />
-                    Target API (Optional)
-                </div>
-                <div className="flex gap-2">
-                    <input 
-                      value={targetEndpoint}
-                      onChange={e => setTargetEndpoint(e.target.value)}
-                      className="flex-1 bg-input border border-border text-white px-3 py-2 rounded-lg text-sm focus:border-white outline-none placeholder-zinc-700"
-                      placeholder="https://api.site.com/hero"
-                    />
-                    <button 
-                        onClick={() => checkEndpoint(targetEndpoint, endpointKey)} 
-                        className={`px-3 rounded-lg border border-border transition-colors ${endpointStatus === 'success' ? 'text-green-500 border-green-900 bg-green-900/10' : endpointStatus === 'error' ? 'text-red-500 border-red-900' : 'text-zinc-500 hover:text-white'}`}
-                    >
-                        {endpointStatus === 'testing' ? <div className="w-4 h-4 rounded-full border-2 border-current border-t-transparent animate-spin"/> : <ArrowPathIcon className="w-4 h-4" />}
-                    </button>
-                </div>
-                <div className="relative">
-                    <KeyIcon className="w-4 h-4 absolute left-3 top-2.5 text-zinc-600" />
-                    <input 
-                      value={endpointKey}
-                      type="password"
-                      onChange={e => setEndpointKey(e.target.value)}
-                      className="w-full bg-input border border-border text-white pl-9 pr-3 py-2 rounded-lg text-sm focus:border-white outline-none placeholder-zinc-700"
-                      placeholder="API Access Key"
-                    />
-                </div>
-             </div>
+             {publishedUrl && (
+              <div className="space-y-3 pt-4 border-t border-zinc-900">
+                  <label className="text-xs font-bold text-zinc-500 uppercase">Live Data URL</label>
+                  <div className="flex gap-2">
+                      <input 
+                        readOnly
+                        value={publishedUrl}
+                        className="flex-1 bg-input border border-border text-zinc-400 px-3 py-2 rounded-lg text-xs outline-none"
+                      />
+                      <button 
+                          onClick={() => { navigator.clipboard.writeText(publishedUrl); alert('Copied!'); }} 
+                          className="px-3 rounded-lg border border-border text-zinc-400 hover:text-white"
+                      >
+                         <ClipboardDocumentIcon className="w-4 h-4" />
+                      </button>
+                  </div>
+              </div>
+             )}
 
-             <div className="pt-2 border-t border-zinc-900">
+             <div className="pt-4 border-t border-zinc-900">
                 <div className="flex items-center justify-between bg-input border border-border rounded-lg p-3">
                    <div className="flex items-center gap-2">
                        <div className={`w-2 h-2 rounded-full ${geminiStatus === 'success' ? 'bg-green-500' : geminiStatus === 'error' ? 'bg-red-500' : 'bg-yellow-500'}`}></div>
@@ -352,11 +313,9 @@ export default function App() {
         <h1 className="font-bold text-white text-lg tracking-tight">Admin</h1>
         <div className="flex items-center gap-3">
           {statusMsg && <span className="text-xs text-green-500 font-mono">{statusMsg}</span>}
-          {targetEndpoint && (
-            <button onClick={pushToEndpoint} className="text-zinc-400 hover:text-green-400" title="Sync to Endpoint">
-               <GlobeAltIcon className="w-5 h-5" />
-            </button>
-          )}
+          <button onClick={publishToCloudinary} disabled={isPublishing} className="text-zinc-400 hover:text-green-400 disabled:text-zinc-700 disabled:cursor-not-allowed" title="Publish to Cloud">
+             {isPublishing ? <div className="w-5 h-5 border-2 border-zinc-600 border-t-zinc-400 rounded-full animate-spin" /> : <CloudArrowUpIcon className="w-5 h-5" />}
+          </button>
           <button onClick={() => setShowSettings(true)} className="text-zinc-400 hover:text-white">
             <Cog6ToothIcon className="w-5 h-5" />
           </button>
@@ -394,9 +353,6 @@ export default function App() {
               ) : (
                 <span className="text-xs text-zinc-600">No Media</span>
               )}
-              {formData.logo && (
-                 <img src={formData.logo} className="absolute bottom-4 right-4 h-1/3 object-contain drop-shadow-lg z-10" alt="logo" />
-              )}
               {isUploading && <div className="absolute inset-0 bg-black/50 flex items-center justify-center text-xs text-white z-20">Uploading...</div>}
             </div>
 
@@ -414,8 +370,6 @@ export default function App() {
               </div>
 
               <Input label="Slug / ID" name="id" value={formData.id} onChange={handleInputChange} />
-              
-              <Input label="Logo / Cover URL" name="logo" value={formData.logo || ''} onChange={handleInputChange} placeholder="https://..." />
               
               <div className="grid grid-cols-2 gap-4">
                 <Input label="Rank" type="number" name="rank" value={formData.rank} onChange={handleInputChange} />
@@ -462,7 +416,6 @@ export default function App() {
                 <div key={slide.id} onClick={() => { setFormData(slide); setLocalPreview(null); setActiveTab('editor'); }} className="flex gap-3 p-3 bg-bg border border-border rounded-lg items-center cursor-pointer hover:border-zinc-700">
                    <div className="w-16 h-10 bg-input rounded overflow-hidden shrink-0 relative">
                       {slide.posterType === 'video' ? <video src={slide.poster} className="w-full h-full object-cover" /> : <img src={slide.poster} className="w-full h-full object-cover" />}
-                      {slide.logo && <img src={slide.logo} className="absolute bottom-0.5 right-0.5 h-1/3 object-contain drop-shadow-lg" />}
                    </div>
                    <div className="flex-1 min-w-0">
                       <h4 className="text-white text-sm font-medium truncate">{slide.title}</h4>

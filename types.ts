@@ -10,7 +10,6 @@ export interface SlideData {
   id: string;
   poster: string;
   posterType: 'image' | 'video';
-  logo: string;
   rank: number;
   type: string;
   quality: string;
