@@ -3,20 +3,15 @@ import { SlideData, HeroSlidesJSON } from './types';
 import { uploadToCloudinary, setCloudConfig, getCloudConfig } from './services/cloudinaryService';
 import { generateAnimeDetails, testGeminiConnection } from './services/geminiService';
 import { Input, TextArea } from './components/Input';
+import { HomePage } from './components/HomePage';
 import { 
   CloudArrowUpIcon, 
   ArrowDownTrayIcon, 
   ClipboardDocumentIcon, 
   SparklesIcon, 
   TrashIcon, 
-  PlusIcon,
-  ChevronRightIcon,
   Cog6ToothIcon,
-  CheckCircleIcon,
-  XCircleIcon,
-  GlobeAltIcon,
-  KeyIcon,
-  ArrowPathIcon
+  HomeIcon
 } from '@heroicons/react/24/solid';
 
 const INITIAL_STATE: SlideData = {
@@ -37,7 +32,7 @@ const INITIAL_STATE: SlideData = {
 
 type Tab = 'editor' | 'library';
 type ConfigStatus = 'idle' | 'testing' | 'success' | 'error';
-
+type View = 'home' | 'admin';
 
 export default function App() {
   // Main App State
@@ -50,7 +45,8 @@ export default function App() {
   const [statusMsg, setStatusMsg] = useState('');
   const [activeTab, setActiveTab] = useState<Tab>('editor');
 
-  // Config State
+  // View & Config State
+  const [view, setView] = useState<View>('home');
   const [isConfigured, setIsConfigured] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [cloudName, setCloudName] = useState('');
@@ -58,7 +54,6 @@ export default function App() {
   const [geminiStatus, setGeminiStatus] = useState<ConfigStatus>('idle');
   const [publishedUrl, setPublishedUrl] = useState('');
   
-
   // Load Data
   useEffect(() => {
     const saved = localStorage.getItem('hero_slides');
@@ -71,9 +66,11 @@ export default function App() {
     const savedPublishedUrl = localStorage.getItem('hero_published_url') || '';
     setPublishedUrl(savedPublishedUrl);
 
+    // If we have permanent or saved config, we are good to go
     if (config.cloudName && config.uploadPreset) {
        setCloudName(config.cloudName);
        setUploadPreset(config.uploadPreset);
+       setIsConfigured(true);
        checkGemini(true);
     } else {
        setShowSettings(true);
@@ -85,10 +82,8 @@ export default function App() {
     const working = await testGeminiConnection();
     if (working) {
       setGeminiStatus('success');
-      setIsConfigured(true);
     } else {
       setGeminiStatus('error');
-      if (!silent) setIsConfigured(false);
     }
   };
 
@@ -99,18 +94,20 @@ export default function App() {
     }
     
     setCloudConfig(cloudName, uploadPreset);
-
-    if (geminiStatus === 'success') {
-      setIsConfigured(true);
-      setShowSettings(false);
-    } else {
-      alert("Please ensure Gemini API Key is working.");
-    }
+    setIsConfigured(true);
+    setShowSettings(false);
+    setView('home');
   };
 
   useEffect(() => {
     localStorage.setItem('hero_slides', JSON.stringify(slides));
   }, [slides]);
+
+  const copyPublishedUrl = () => {
+    if (!publishedUrl) return;
+    navigator.clipboard.writeText(publishedUrl);
+    alert('Copied to clipboard!');
+  };
 
   // Handlers
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -222,7 +219,7 @@ export default function App() {
     }
   };
 
-  // Render Setup Screen
+  // Render Setup Screen (only if forced via settings or not configured)
   if (!isConfigured || showSettings) {
     return (
       <div className="h-dvh w-screen bg-bg text-zinc-300 flex flex-col items-center justify-center p-6 z-50 fixed inset-0">
@@ -236,7 +233,7 @@ export default function App() {
              <div className="space-y-3">
                 <div className="flex items-center gap-2 text-xs font-bold text-zinc-500 uppercase">
                     <CloudArrowUpIcon className="w-4 h-4" />
-                    Cloudinary (Required)
+                    Cloudinary
                 </div>
                 <input 
                   value={cloudName}
@@ -262,7 +259,7 @@ export default function App() {
                         className="flex-1 bg-input border border-border text-zinc-400 px-3 py-2 rounded-lg text-xs outline-none"
                       />
                       <button 
-                          onClick={() => { navigator.clipboard.writeText(publishedUrl); alert('Copied!'); }} 
+                          onClick={copyPublishedUrl}
                           className="px-3 rounded-lg border border-border text-zinc-400 hover:text-white"
                       >
                          <ClipboardDocumentIcon className="w-4 h-4" />
@@ -278,18 +275,14 @@ export default function App() {
                        <span className="text-xs font-medium text-zinc-400">Gemini AI</span>
                    </div>
                    <button onClick={() => checkGemini()} className="text-xs text-zinc-500 hover:text-white underline">
-                     Retry
+                     Test AI
                    </button>
                 </div>
              </div>
 
              <button 
                onClick={saveSettings}
-               className={`w-full py-3 rounded-lg font-bold text-sm mt-2 transition-colors ${
-                 (cloudName && uploadPreset && geminiStatus === 'success') 
-                 ? 'bg-white text-black hover:bg-zinc-200' 
-                 : 'bg-zinc-800 text-zinc-500'
-               }`}
+               className="w-full py-3 rounded-lg font-bold text-sm mt-2 transition-colors bg-white text-black hover:bg-zinc-200"
              >
                {isConfigured ? 'Save Changes' : 'Initialize App'}
              </button>
@@ -305,12 +298,28 @@ export default function App() {
     );
   }
 
-  // Main App
+  // Render Home Screen
+  if (view === 'home') {
+    return (
+      <HomePage 
+        publishedUrl={publishedUrl}
+        onNavigateToAdmin={() => setView('admin')}
+        onCopyToClipboard={copyPublishedUrl}
+      />
+    );
+  }
+
+  // Render Admin Panel
   return (
     <div className="flex flex-col h-dvh bg-bg text-zinc-300 font-sans">
       
       <header className="h-14 flex items-center justify-between px-4 border-b border-border bg-bg z-20 shrink-0">
-        <h1 className="font-bold text-white text-lg tracking-tight">Admin</h1>
+        <div className="flex items-center gap-4">
+          <button onClick={() => setView('home')} className="text-zinc-400 hover:text-white" title="Go to Home">
+            <HomeIcon className="w-5 h-5" />
+          </button>
+          <h1 className="font-bold text-white text-lg tracking-tight">Admin Panel</h1>
+        </div>
         <div className="flex items-center gap-3">
           {statusMsg && <span className="text-xs text-green-500 font-mono">{statusMsg}</span>}
           <button onClick={publishToCloudinary} disabled={isPublishing} className="text-zinc-400 hover:text-green-400 disabled:text-zinc-700 disabled:cursor-not-allowed" title="Publish to Cloud">
