@@ -9,9 +9,13 @@ export interface UploadOptions {
   overwrite?: boolean;
 }
 
+// User-provided permanent values
+const PERMANENT_CLOUD_NAME = 'dj5hhott5';
+const PERMANENT_UPLOAD_PRESET = 'My smallest server';
+
 export const getCloudConfig = () => ({
-  cloudName: localStorage.getItem('hero_cloud_name') || '',
-  uploadPreset: localStorage.getItem('hero_upload_preset') || ''
+  cloudName: localStorage.getItem('hero_cloud_name') || PERMANENT_CLOUD_NAME,
+  uploadPreset: localStorage.getItem('hero_upload_preset') || PERMANENT_UPLOAD_PRESET
 });
 
 export const setCloudConfig = (name: string, preset: string) => {
@@ -37,9 +41,6 @@ export const uploadToCloudinary = async (
   if (options.publicId) {
     formData.append('public_id', options.publicId);
   }
-  // The 'overwrite' parameter is not supported on unsigned uploads.
-  // To enable overwriting, the upload_preset itself must be configured
-  // in the Cloudinary dashboard to allow it. Sending it here will cause an error.
 
   try {
     const response = await fetch(url, {
