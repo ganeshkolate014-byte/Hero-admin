@@ -25,6 +25,7 @@ const INITIAL_STATE: SlideData = {
   id: '',
   poster: '',
   posterType: 'image',
+  logo: '',
   rank: 1,
   type: 'TV',
   quality: 'HD',
@@ -38,40 +39,46 @@ const INITIAL_STATE: SlideData = {
 type Tab = 'editor' | 'library';
 type ConfigStatus = 'idle' | 'testing' | 'success' | 'error';
 
+
+// Simple component to render raw JSON, mimicking a real API response
+const JsonResponse = ({ data }: { data: any }) => {
+  useEffect(() => {
+    document.body.style.backgroundColor = '#ffffff'; // Use a standard document background
+    return () => {
+      document.body.style.backgroundColor = '#000000'; // Reset on unmount
+    }
+  }, []);
+  
+  return (
+    <pre style={{ wordWrap: 'break-word', whiteSpace: 'pre-wrap', color: '#111', padding: '10px', fontFamily: 'monospace', fontSize: '13px' }}>
+      {JSON.stringify(data, null, 2)}
+    </pre>
+  );
+};
+
+
 export default function App() {
   // --- ROUTING LOGIC FOR JSON OUTPUT ---
-  // This intercepts paths like /heroslide/blue-lock to render JSON directly
   const path = window.location.pathname;
   if (path.startsWith('/heroslide')) {
     const slides: SlideData[] = JSON.parse(localStorage.getItem('hero_slides') || '[]');
     let responseData: any = { error: 'Not Found' };
-    let status = 404;
 
-    // Remove trailing slash and extract ID
     const cleanPath = path.replace(/\/$/, '');
     const parts = cleanPath.split('/');
-    const requestedId = parts[parts.length - 1]; // e.g. "blue-lock" or "heroslide" if root
+    const requestedId = parts[parts.length - 1];
 
     if (requestedId === 'heroslide') {
-       // Return all
        responseData = { success: true, data: { spotlight: slides } };
-       status = 200;
     } else {
-       // Return specific
        const slide = slides.find(s => s.id === requestedId);
        if (slide) {
          responseData = slide;
-         status = 200;
        }
     }
-
-    return (
-      <div className="bg-black text-white h-dvh w-screen overflow-auto p-4 font-mono text-sm">
-        <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-          {JSON.stringify(responseData, null, 2)}
-        </pre>
-      </div>
-    );
+    
+    // Render the special JSON component instead of the main app
+    return <JsonResponse data={responseData} />;
   }
   // -------------------------------------
 
@@ -114,7 +121,6 @@ export default function App() {
        setTargetEndpoint(savedEndpoint);
        setEndpointKey(savedKey);
        
-       // Verify critical services silently
        checkGemini(true);
        if (savedEndpoint) checkEndpoint(savedEndpoint, savedKey, true);
     } else {
@@ -139,13 +145,11 @@ export default function App() {
     if (!silent) setEndpointStatus('testing');
     
     try {
-      // Simple GET or HEAD request to verify reachability/auth
       const res = await fetch(url, {
         method: 'GET',
         headers: key ? { 'x-api-key': key, 'Authorization': `Bearer ${key}` } : {}
       });
       
-      // We consider 200-299 success, or 404 (route exists but maybe empty)
       if (res.ok || res.status === 404) {
         setEndpointStatus('success');
       } else {
@@ -297,7 +301,6 @@ export default function App() {
           </h2>
           
           <div className="space-y-5">
-             {/* Cloudinary Section */}
              <div className="space-y-3">
                 <div className="flex items-center gap-2 text-xs font-bold text-zinc-500 uppercase">
                     <CloudArrowUpIcon className="w-4 h-4" />
@@ -317,7 +320,6 @@ export default function App() {
                 />
              </div>
 
-             {/* Endpoint Section */}
              <div className="space-y-3 pt-2 border-t border-zinc-900">
                 <div className="flex items-center gap-2 text-xs font-bold text-zinc-500 uppercase">
                     <GlobeAltIcon className="w-4 h-4" />
@@ -349,7 +351,6 @@ export default function App() {
                 </div>
              </div>
 
-             {/* Status Section */}
              <div className="pt-2 border-t border-zinc-900">
                 <div className="flex items-center justify-between bg-input border border-border rounded-lg p-3">
                    <div className="flex items-center gap-2">
@@ -388,7 +389,6 @@ export default function App() {
   return (
     <div className="flex flex-col h-dvh bg-bg text-zinc-300 font-sans">
       
-      {/* HEADER */}
       <header className="h-14 flex items-center justify-between px-4 border-b border-border bg-bg z-20 shrink-0">
         <h1 className="font-bold text-white text-lg tracking-tight">Admin</h1>
         <div className="flex items-center gap-3">
@@ -407,7 +407,6 @@ export default function App() {
         </div>
       </header>
 
-      {/* MOBILE TABS */}
       <div className="md:hidden grid grid-cols-2 border-b border-border shrink-0">
         <button 
           onClick={() => setActiveTab('editor')} 
@@ -425,11 +424,9 @@ export default function App() {
 
       <div className="flex-1 overflow-hidden flex relative">
         
-        {/* EDITOR */}
         <div className={`w-full md:w-[400px] flex flex-col overflow-y-auto ${activeTab === 'editor' ? 'block' : 'hidden md:flex'} border-r border-border pb-10`}>
           <div className="p-4 flex flex-col gap-4">
             
-            {/* Simple Preview */}
             <div className="w-full aspect-video bg-input rounded-lg overflow-hidden border border-border relative flex items-center justify-center group">
               {(localPreview || formData.poster) ? (
                 formData.posterType === 'video' || (localPreview && !formData.poster && localPreview.startsWith('blob')) ? 
@@ -438,10 +435,12 @@ export default function App() {
               ) : (
                 <span className="text-xs text-zinc-600">No Media</span>
               )}
-              {isUploading && <div className="absolute inset-0 bg-black/50 flex items-center justify-center text-xs">Uploading...</div>}
+              {formData.logo && (
+                 <img src={formData.logo} className="absolute bottom-4 right-4 h-1/3 object-contain drop-shadow-lg z-10" alt="logo" />
+              )}
+              {isUploading && <div className="absolute inset-0 bg-black/50 flex items-center justify-center text-xs text-white z-20">Uploading...</div>}
             </div>
 
-            {/* Inputs */}
             <div>
               <div className="flex gap-2 mb-4">
                 <div className="flex-1">
@@ -457,6 +456,8 @@ export default function App() {
 
               <Input label="Slug / ID" name="id" value={formData.id} onChange={handleInputChange} />
               
+              <Input label="Logo / Cover URL" name="logo" value={formData.logo || ''} onChange={handleInputChange} placeholder="https://..." />
+              
               <div className="grid grid-cols-2 gap-4">
                 <Input label="Rank" type="number" name="rank" value={formData.rank} onChange={handleInputChange} />
                 <Input label="Type" name="type" value={formData.type} onChange={handleInputChange} />
@@ -467,7 +468,6 @@ export default function App() {
                 <Input label="Keyword" name="keywords" value={formData.keywords[0] || ''} onChange={handleInputChange} />
               </div>
 
-              {/* Simple Episodes Row */}
               <div className="mb-4">
                 <label className="text-zinc-500 text-xs font-medium pl-1 mb-1.5 block">Episodes (Sub / Dub / Total)</label>
                 <div className="grid grid-cols-3 gap-2">
@@ -497,13 +497,13 @@ export default function App() {
           </div>
         </div>
 
-        {/* LIBRARY */}
         <div className={`flex-1 overflow-y-auto bg-surface p-4 ${activeTab === 'library' ? 'block' : 'hidden md:block'}`}>
            <div className="grid gap-3">
               {slides.map(slide => (
                 <div key={slide.id} onClick={() => { setFormData(slide); setLocalPreview(null); setActiveTab('editor'); }} className="flex gap-3 p-3 bg-bg border border-border rounded-lg items-center cursor-pointer hover:border-zinc-700">
-                   <div className="w-16 h-10 bg-input rounded overflow-hidden shrink-0">
+                   <div className="w-16 h-10 bg-input rounded overflow-hidden shrink-0 relative">
                       {slide.posterType === 'video' ? <video src={slide.poster} className="w-full h-full object-cover" /> : <img src={slide.poster} className="w-full h-full object-cover" />}
+                      {slide.logo && <img src={slide.logo} className="absolute bottom-0.5 right-0.5 h-1/3 object-contain drop-shadow-lg" />}
                    </div>
                    <div className="flex-1 min-w-0">
                       <h4 className="text-white text-sm font-medium truncate">{slide.title}</h4>
