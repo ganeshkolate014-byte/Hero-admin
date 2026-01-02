@@ -40,48 +40,7 @@ type Tab = 'editor' | 'library';
 type ConfigStatus = 'idle' | 'testing' | 'success' | 'error';
 
 
-// Simple component to render raw JSON, mimicking a real API response
-const JsonResponse = ({ data }: { data: any }) => {
-  useEffect(() => {
-    document.body.style.backgroundColor = '#ffffff'; // Use a standard document background
-    return () => {
-      document.body.style.backgroundColor = '#000000'; // Reset on unmount
-    }
-  }, []);
-  
-  return (
-    <pre style={{ wordWrap: 'break-word', whiteSpace: 'pre-wrap', color: '#111', padding: '10px', fontFamily: 'monospace', fontSize: '13px' }}>
-      {JSON.stringify(data, null, 2)}
-    </pre>
-  );
-};
-
-
 export default function App() {
-  // --- ROUTING LOGIC FOR JSON OUTPUT ---
-  const path = window.location.pathname;
-  if (path.startsWith('/heroslide')) {
-    const slides: SlideData[] = JSON.parse(localStorage.getItem('hero_slides') || '[]');
-    let responseData: any = { error: 'Not Found' };
-
-    const cleanPath = path.replace(/\/$/, '');
-    const parts = cleanPath.split('/');
-    const requestedId = parts[parts.length - 1];
-
-    if (requestedId === 'heroslide') {
-       responseData = { success: true, data: { spotlight: slides } };
-    } else {
-       const slide = slides.find(s => s.id === requestedId);
-       if (slide) {
-         responseData = slide;
-       }
-    }
-    
-    // Render the special JSON component instead of the main app
-    return <JsonResponse data={responseData} />;
-  }
-  // -------------------------------------
-
   // Main App State
   const [slides, setSlides] = useState<SlideData[]>([]);
   const [formData, setFormData] = useState<SlideData>(INITIAL_STATE);
