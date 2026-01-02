@@ -1,0 +1,5 @@
+{
+  "name": "Anime Hero Admin - ROG Edition",
+  "description": "A high-performance admin panel for managing hero slider content with Cloudinary uploads and Gemini AI auto-fill.",
+  "requestFramePermissions": []
+}
