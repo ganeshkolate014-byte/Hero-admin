@@ -39,6 +39,42 @@ type Tab = 'editor' | 'library';
 type ConfigStatus = 'idle' | 'testing' | 'success' | 'error';
 
 export default function App() {
+  // --- ROUTING LOGIC FOR JSON OUTPUT ---
+  // This intercepts paths like /heroslide/blue-lock to render JSON directly
+  const path = window.location.pathname;
+  if (path.startsWith('/heroslide')) {
+    const slides: SlideData[] = JSON.parse(localStorage.getItem('hero_slides') || '[]');
+    let responseData: any = { error: 'Not Found' };
+    let status = 404;
+
+    // Remove trailing slash and extract ID
+    const cleanPath = path.replace(/\/$/, '');
+    const parts = cleanPath.split('/');
+    const requestedId = parts[parts.length - 1]; // e.g. "blue-lock" or "heroslide" if root
+
+    if (requestedId === 'heroslide') {
+       // Return all
+       responseData = { success: true, data: { spotlight: slides } };
+       status = 200;
+    } else {
+       // Return specific
+       const slide = slides.find(s => s.id === requestedId);
+       if (slide) {
+         responseData = slide;
+         status = 200;
+       }
+    }
+
+    return (
+      <div className="bg-black text-white h-dvh w-screen overflow-auto p-4 font-mono text-sm">
+        <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+          {JSON.stringify(responseData, null, 2)}
+        </pre>
+      </div>
+    );
+  }
+  // -------------------------------------
+
   // Main App State
   const [slides, setSlides] = useState<SlideData[]>([]);
   const [formData, setFormData] = useState<SlideData>(INITIAL_STATE);
