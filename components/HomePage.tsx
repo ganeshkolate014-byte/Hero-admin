@@ -1,13 +1,11 @@
 import React from 'react';
-import { ClipboardDocumentIcon, ArrowRightIcon } from '@heroicons/react/24/solid';
+import { ArrowRightIcon } from '@heroicons/react/24/solid';
 
 interface HomePageProps {
-  publishedUrl: string;
   onNavigateToAdmin: () => void;
-  onCopyToClipboard: () => void;
 }
 
-export const HomePage: React.FC<HomePageProps> = ({ publishedUrl, onNavigateToAdmin, onCopyToClipboard }) => {
+export const HomePage: React.FC<HomePageProps> = ({ onNavigateToAdmin }) => {
   return (
     <div className="h-dvh w-screen bg-bg text-zinc-300 flex flex-col items-center justify-center p-6 text-center">
       <div className="w-full max-w-lg">
@@ -21,28 +19,6 @@ export const HomePage: React.FC<HomePageProps> = ({ publishedUrl, onNavigateToAd
           The ultimate content management engine for high-performance sliders. 
           Real-time updates. AI-powered metadata.
         </p>
-
-        <div className="space-y-4 mb-12">
-          <label className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">
-            LIVE DATA ENDPOINT
-          </label>
-          <div className="flex gap-2 justify-center">
-            <input
-              readOnly
-              value={publishedUrl || "PUBLISH CONTENT TO GENERATE URL"}
-              className="w-full max-w-md text-center bg-input border border-border text-zinc-400 px-4 py-4 rounded-lg text-xs font-mono outline-none focus:border-accent/50"
-            />
-            {publishedUrl && (
-              <button
-                onClick={onCopyToClipboard}
-                className="px-4 py-4 rounded-lg border border-border bg-input text-zinc-400 hover:text-accent hover:border-accent transition-all"
-                title="Copy URL"
-              >
-                <ClipboardDocumentIcon className="w-5 h-5" />
-              </button>
-            )}
-          </div>
-        </div>
 
         <button
           onClick={onNavigateToAdmin}
