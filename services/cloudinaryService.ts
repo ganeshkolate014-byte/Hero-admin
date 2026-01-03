@@ -6,7 +6,6 @@ export interface CloudinaryResponse {
 
 export interface UploadOptions {
   publicId?: string;
-  overwrite?: boolean;
 }
 
 // User-provided permanent values
@@ -25,7 +24,8 @@ export const setCloudConfig = (name: string, preset: string) => {
 
 export const uploadToCloudinary = async (
   file: File,
-  options: UploadOptions = {}
+  options: UploadOptions = {},
+  onProgress?: (progress: number) => void
 ): Promise<CloudinaryResponse> => {
   const { cloudName, uploadPreset } = getCloudConfig();
 
@@ -34,32 +34,45 @@ export const uploadToCloudinary = async (
   }
 
   const url = `https://api.cloudinary.com/v1_1/${cloudName}/auto/upload`;
-  const formData = new FormData();
-
-  formData.append('file', file);
-  formData.append('upload_preset', uploadPreset);
-  if (options.publicId) {
-    formData.append('public_id', options.publicId);
-  }
-
-  try {
-    const response = await fetch(url, {
-      method: 'POST',
-      body: formData,
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.error?.message || `Upload failed with status ${response.status}`);
+  
+  return new Promise((resolve, reject) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('upload_preset', uploadPreset);
+    if (options.publicId) {
+      formData.append('public_id', options.publicId);
     }
 
-    return {
-      secure_url: data.secure_url,
-      resource_type: data.resource_type,
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url, true);
+
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && onProgress) {
+        const percentComplete = Math.round((event.loaded / event.total) * 100);
+        onProgress(percentComplete);
+      }
     };
-  } catch (error) {
-    console.error("Cloudinary Upload Error:", error);
-    throw error;
-  }
+
+    xhr.onload = () => {
+      try {
+        const data = JSON.parse(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve({
+            secure_url: data.secure_url,
+            resource_type: data.resource_type,
+          });
+        } else {
+          reject(new Error(data.error?.message || `Upload failed with status ${xhr.status}`));
+        }
+      } catch (error) {
+        reject(new Error('Failed to parse upload response.'));
+      }
+    };
+
+    xhr.onerror = () => {
+      reject(new Error('A network error occurred during the upload.'));
+    };
+    
+    xhr.send(formData);
+  });
 };
