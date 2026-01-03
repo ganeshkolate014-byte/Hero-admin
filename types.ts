@@ -18,13 +18,23 @@ export interface SlideData {
   synopsis: string;
   keywords: string[];
   episodes: Episodes;
+  publishedUrl?: string;
 }
 
-export interface HeroSlidesJSON {
-  success: boolean;
-  data: {
-    spotlight: SlideData[];
-  };
+export interface UserInfo {
+  username: string;
+  joinedAt: string;
+  lastActive: string;
+}
+
+export interface UserLibraryData {
+  info: UserInfo;
+  library: SlideData[];
+  lastUpdated: string;
+}
+
+export interface MasterDB {
+  users: Record<string, UserLibraryData>;
 }
 
 export enum SlideType {
@@ -39,4 +49,10 @@ export enum Quality {
   FHD = 'FHD',
   FOUR_K = '4K',
   CAM = 'CAM'
+}
+
+export interface User {
+  id: string;
+  name: string;
+  createdAt: string;
 }

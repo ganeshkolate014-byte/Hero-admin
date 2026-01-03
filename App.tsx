@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { SlideData } from './types';
 import { uploadToCloudinary, setCloudConfig, getCloudConfig } from './services/cloudinaryService';
 import { generateAnimeDetails, testGeminiConnection } from './services/geminiService';
+import * as dataService from './services/dataService';
 import { Input, TextArea } from './components/Input';
 import { HomePage } from './components/HomePage';
+import { LoginPage } from './components/LoginPage';
 import { 
   CloudArrowUpIcon, 
   ArrowDownTrayIcon, 
@@ -12,7 +14,9 @@ import {
   TrashIcon, 
   Cog6ToothIcon,
   HomeIcon,
-  PlusIcon
+  PlusIcon,
+  LinkIcon,
+  ArrowRightOnRectangleIcon,
 } from '@heroicons/react/24/solid';
 
 const INITIAL_STATE: SlideData = {
@@ -28,7 +32,8 @@ const INITIAL_STATE: SlideData = {
   aired: '',
   synopsis: '',
   keywords: [],
-  episodes: { sub: 0, dub: 0, eps: 0 }
+  episodes: { sub: 0, dub: 0, eps: 0 },
+  publishedUrl: ''
 };
 
 type Tab = 'editor' | 'library';
@@ -36,10 +41,12 @@ type ConfigStatus = 'idle' | 'testing' | 'success' | 'error';
 type View = 'home' | 'admin';
 
 export default function App() {
+  const [username, setUsername] = useState<string | null>(() => sessionStorage.getItem('hero_username'));
   const [slides, setSlides] = useState<SlideData[]>([]);
   const [formData, setFormData] = useState<SlideData>(INITIAL_STATE);
   const [isUploading, setIsUploading] = useState(false);
-  const [isPublishing, setIsPublishing] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [publishingSlideId, setPublishingSlideId] = useState<string | null>(null);
   const [isAutoFilling, setIsAutoFilling] = useState(false);
   const [localPreview, setLocalPreview] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState('');
@@ -50,27 +57,47 @@ export default function App() {
   const [cloudName, setCloudName] = useState('');
   const [uploadPreset, setUploadPreset] = useState('');
   const [geminiStatus, setGeminiStatus] = useState<ConfigStatus>('idle');
-  const [publishedUrl, setPublishedUrl] = useState('');
-  
-  useEffect(() => {
-    const saved = localStorage.getItem('hero_slides');
-    if (saved) {
-      try { setSlides(JSON.parse(saved)); } catch (e) {}
-    }
-    
-    const config = getCloudConfig();
-    const savedPublishedUrl = localStorage.getItem('hero_published_url') || '';
-    setPublishedUrl(savedPublishedUrl);
+  const [isLibraryLoading, setIsLibraryLoading] = useState(true);
 
-    if (config.cloudName && config.uploadPreset) {
-       setCloudName(config.cloudName);
-       setUploadPreset(config.uploadPreset);
-       setIsConfigured(true);
-       checkGemini(true);
+  useEffect(() => {
+    if (username) {
+      loadUserLibrary(username);
     } else {
-       setShowSettings(true);
+      setIsLibraryLoading(false);
     }
-  }, []);
+  
+    const config = getCloudConfig();
+    if (config.cloudName && config.uploadPreset) {
+      setCloudName(config.cloudName);
+      setUploadPreset(config.uploadPreset);
+      setIsConfigured(true);
+      checkGemini(true);
+    } else {
+      setShowSettings(true);
+    }
+  }, [username]);
+
+  const loadUserLibrary = async (user: string) => {
+    setIsLibraryLoading(true);
+    setStatusMsg('Loading Library...');
+    const userSlides = await dataService.getUserLibrary(user);
+    setSlides(userSlides);
+    setStatusMsg('Library Loaded.');
+    setView('home');
+    setIsLibraryLoading(false);
+    setTimeout(() => setStatusMsg(''), 2000);
+  };
+  
+  const handleLogin = async (newUsername: string) => {
+    sessionStorage.setItem('hero_username', newUsername);
+    setUsername(newUsername);
+  };
+
+  const handleChangeUser = () => {
+    sessionStorage.removeItem('hero_username');
+    setUsername(null);
+    setSlides([]);
+  };
 
   const checkGemini = async (silent = false) => {
     if (!silent) setGeminiStatus('testing');
@@ -87,15 +114,11 @@ export default function App() {
     setIsConfigured(true);
     setShowSettings(false);
   };
-
-  useEffect(() => {
-    localStorage.setItem('hero_slides', JSON.stringify(slides));
-  }, [slides]);
-
-  const copyPublishedUrl = () => {
-    if (!publishedUrl) return;
-    navigator.clipboard.writeText(publishedUrl);
-    alert('Copied!');
+  
+  const copyUrlToClipboard = (url: string) => {
+    if (!url) return;
+    navigator.clipboard.writeText(url);
+    alert('URL Copied!');
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -117,8 +140,11 @@ export default function App() {
       const file = e.target.files[0];
       setLocalPreview(URL.createObjectURL(file));
       setIsUploading(true);
+      setUploadProgress(0);
       try {
-        const response = await uploadToCloudinary(file);
+        const response = await uploadToCloudinary(file, {}, (progress) => {
+          setUploadProgress(progress);
+        });
         setFormData(prev => ({
           ...prev,
           poster: response.secure_url,
@@ -129,6 +155,7 @@ export default function App() {
         alert('Upload failed: ' + error);
       } finally {
         setIsUploading(false);
+        setUploadProgress(null);
         setTimeout(() => setStatusMsg(''), 2000);
       }
     }
@@ -153,21 +180,60 @@ export default function App() {
     }
   };
 
-  const addSlide = () => {
-    if (!formData.title || !formData.poster) return alert("Title & Media required");
-    const index = slides.findIndex(s => s.id === formData.id);
-    if (index >= 0) {
-      const newSlides = [...slides];
-      newSlides[index] = formData;
-      setSlides(newSlides);
-    } else {
-      setSlides(prev => [formData, ...prev]);
+  const addOrUpdateSlide = async () => {
+    if (!formData.title || !formData.poster || !formData.id || !username) {
+        return alert("Title, Media, and Slug Identifier are required.");
     }
-    setFormData(INITIAL_STATE);
-    setLocalPreview(null);
-    setStatusMsg('Saved to Library');
-    setTimeout(() => setStatusMsg(''), 2000);
-    if (window.innerWidth < 768) setActiveTab('library');
+    
+    setStatusMsg('Saving...');
+    try {
+        const isUpdating = slides.some(s => s.id === formData.id);
+        let updatedSlides;
+
+        if (isUpdating) {
+            updatedSlides = slides.map(s => s.id === formData.id ? formData : s);
+        } else {
+            if (slides.some(s => s.id === formData.id)) {
+                alert(`Error: A slide with slug "${formData.id}" already exists. Please change the title or slug.`);
+                setStatusMsg('');
+                return;
+            }
+            updatedSlides = [formData, ...slides];
+        }
+
+        updatedSlides.sort((a, b) => (a.rank || 0) - (b.rank || 0));
+
+        await dataService.saveUserLibrary(username, updatedSlides);
+        setSlides(updatedSlides);
+        
+        setStatusMsg(isUpdating ? 'Record Updated.' : 'Record Saved.');
+        setFormData(INITIAL_STATE);
+        setLocalPreview(null);
+        if (window.innerWidth < 768) setActiveTab('library');
+
+    } catch(error) {
+        console.error("Save error:", error);
+        setStatusMsg('Save Failed.');
+    } finally {
+        setTimeout(() => setStatusMsg(''), 2000);
+    }
+  };
+
+  const deleteSlide = async (slideId: string) => {
+      if (!username || !confirm('Erase Record? This is permanent.')) return;
+      
+      setStatusMsg('Deleting...');
+      try {
+          const updatedSlides = slides.filter(i => i.id !== slideId);
+          await dataService.saveUserLibrary(username, updatedSlides);
+          setSlides(updatedSlides);
+          setStatusMsg('Record Deleted.');
+      } catch(error) {
+          console.error("Delete error: ", error);
+          setStatusMsg('Delete failed.');
+      } finally {
+          setTimeout(() => setStatusMsg(''), 2000);
+      }
   };
 
   const downloadJSON = () => {
@@ -175,34 +241,50 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'heroslides.json';
+    a.download = `heroslides_${username}_backup.json`;
     a.click();
   };
   
-  const publishToCloudinary = async () => {
-    if (slides.length === 0) return alert("Library is empty.");
-    setIsPublishing(true);
-    setStatusMsg('Syncing Cloud...');
+  const publishSingleSlide = async (slideId: string) => {
+    const slideToPublish = slides.find(s => s.id === slideId);
+    if (!slideToPublish || !username) return;
+
+    setPublishingSlideId(slideId);
+    setStatusMsg(`Publishing ${slideId}...`);
     try {
-      const jsonString = JSON.stringify({ success: true, data: { spotlight: slides } }, null, 2);
+      const jsonString = JSON.stringify({ success: true, data: { spotlight: [slideToPublish] } }, null, 2);
       const blob = new Blob([jsonString], { type: 'application/json' });
-      const file = new File([blob], 'heroslides.json', { type: 'application/json' });
-      const response = await uploadToCloudinary(file, { publicId: 'heroslides_data' });
-      setPublishedUrl(response.secure_url);
-      localStorage.setItem('hero_published_url', response.secure_url);
-      setStatusMsg('Cloud Synced!');
+      const file = new File([blob], `${slideId}.json`, { type: 'application/json' });
+      
+      await uploadToCloudinary(file, {
+        publicId: `hero_slide_data/${username}/${slideId}`
+      });
+      
+      const config = getCloudConfig();
+      const newUrl = `https://res.cloudinary.com/${config.cloudName}/raw/upload/hero_slide_data/${username}/${slideId}.json`;
+      
+      const updatedSlide = { ...slideToPublish, publishedUrl: newUrl };
+      const updatedSlides = slides.map(s => s.id === slideId ? updatedSlide : s);
+      await dataService.saveUserLibrary(username, updatedSlides);
+      setSlides(updatedSlides);
+      setStatusMsg('Published!');
+
     } catch (error) {
-      alert('Sync failed.');
+      alert(`Failed to publish ${slideId}.`);
     } finally {
-      setIsPublishing(false);
+      setPublishingSlideId(null);
       setTimeout(() => setStatusMsg(''), 3000);
     }
   };
 
+  if (!username) {
+    return <LoginPage onLogin={handleLogin} />;
+  }
+
   if (!isConfigured || showSettings) {
     return (
       <div className="h-dvh w-screen bg-bg text-zinc-300 flex flex-col items-center justify-center p-6 z-50 fixed inset-0">
-        <div className="w-full max-w-sm bg-surface border border-accent/20 rounded-sm p-8 shadow-[0_0_50px_rgba(230,25,25,0.1)]">
+        <div className="w-full max-w-md bg-surface border border-accent/20 rounded-sm p-8 shadow-[0_0_50px_rgba(230,25,25,0.1)] overflow-y-auto max-h-screen">
           <h2 className="text-sm font-black text-white mb-8 flex items-center gap-3 tracking-widest uppercase">
             <Cog6ToothIcon className="w-5 h-5 text-accent" />
             System Console
@@ -224,7 +306,7 @@ export default function App() {
                   placeholder="Upload Preset"
                 />
              </div>
-
+             
              <div className="pt-6 border-t border-border">
                 <div className="flex items-center justify-between bg-input border border-border rounded-sm p-4">
                    <div className="flex items-center gap-3">
@@ -236,6 +318,23 @@ export default function App() {
                    </button>
                 </div>
              </div>
+             
+             {cloudName && (
+                <div className="space-y-2 pt-4 border-t border-border">
+                   <div className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">Master Database</div>
+                   <div className="flex items-center gap-2 bg-input border border-border p-2 rounded-sm">
+                      <LinkIcon className="w-3 h-3 text-accent shrink-0 ml-1" />
+                      <input 
+                        readOnly 
+                        value={`https://res.cloudinary.com/${cloudName}/raw/upload/userinfo.json`}
+                        className="flex-1 bg-transparent text-zinc-500 text-[10px] font-mono outline-none" 
+                      />
+                      <button onClick={() => copyUrlToClipboard(`https://res.cloudinary.com/${cloudName}/raw/upload/userinfo.json`)} title="Copy DB URL" className="p-2 text-zinc-600 hover:text-white transition-colors">
+                        <ClipboardDocumentIcon className="w-4 h-4" />
+                      </button>
+                  </div>
+                </div>
+             )}
 
              <button 
                onClick={saveSettings}
@@ -258,9 +357,7 @@ export default function App() {
   if (view === 'home') {
     return (
       <HomePage 
-        publishedUrl={publishedUrl}
         onNavigateToAdmin={() => setView('admin')}
-        onCopyToClipboard={copyPublishedUrl}
       />
     );
   }
@@ -273,18 +370,22 @@ export default function App() {
             <HomeIcon className="w-5 h-5" />
           </button>
           <div className="h-4 w-px bg-border"></div>
-          <h1 className="font-black text-white text-xs uppercase tracking-[0.3em]">Console <span className="text-accent">Admin</span></h1>
+          <div className='flex items-center gap-2'>
+            <span className="text-xs font-bold uppercase tracking-wider text-zinc-500">User:</span>
+            <span className="text-xs font-black uppercase tracking-wider text-accent">{username}</span>
+          </div>
         </div>
         <div className="flex items-center gap-5">
           {statusMsg && <span className="text-[10px] text-accent font-bold uppercase tracking-widest animate-pulse">{statusMsg}</span>}
-          <button onClick={publishToCloudinary} disabled={isPublishing} className="text-zinc-500 hover:text-accent disabled:opacity-30" title="Publish Cloud">
-             {isPublishing ? <div className="w-4 h-4 border-2 border-accent/20 border-t-accent rounded-full animate-spin" /> : <CloudArrowUpIcon className="w-5 h-5" />}
-          </button>
           <button onClick={() => setShowSettings(true)} className="text-zinc-500 hover:text-accent">
             <Cog6ToothIcon className="w-5 h-5" />
           </button>
-          <button onClick={downloadJSON} className="text-zinc-500 hover:text-white">
+          <button onClick={downloadJSON} title="Download Library Backup" className="text-zinc-500 hover:text-white">
             <ArrowDownTrayIcon className="w-5 h-5" />
+          </button>
+          <div className="h-4 w-px bg-border"></div>
+          <button onClick={handleChangeUser} title="Change User" className="text-zinc-500 hover:text-accent">
+            <ArrowRightOnRectangleIcon className="w-5 h-5" />
           </button>
         </div>
       </header>
@@ -295,6 +396,14 @@ export default function App() {
       </div>
 
       <div className="flex-1 overflow-hidden flex relative">
+        {(isLibraryLoading && !slides.length) && (
+            <div className="absolute inset-0 bg-bg/90 backdrop-blur-sm flex items-center justify-center z-30">
+                <div className="flex flex-col items-center gap-4">
+                    <div className="w-8 h-8 border-4 border-accent/20 border-t-accent rounded-full animate-spin" />
+                    <span className="text-xs font-bold text-zinc-500 tracking-widest uppercase">Connecting...</span>
+                </div>
+            </div>
+        )}
         <div className={`w-full md:w-[450px] flex flex-col overflow-y-auto ${activeTab === 'editor' ? 'block' : 'hidden md:flex'} border-r border-border pb-10`}>
           <div className="p-6 flex flex-col gap-6">
             <div className="w-full aspect-video bg-input rounded-sm overflow-hidden border border-border relative flex items-center justify-center group shadow-inner">
@@ -308,7 +417,21 @@ export default function App() {
                    <span className="text-[10px] font-bold text-zinc-700 uppercase tracking-widest">No Media Asset</span>
                 </div>
               )}
-              {isUploading && <div className="absolute inset-0 bg-black/80 flex items-center justify-center text-[10px] font-black text-accent tracking-[0.2em] uppercase z-20">Uploading...</div>}
+              {isUploading && (
+                <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center text-center p-4 z-20">
+                  <div className="w-full max-w-xs">
+                      <div className="text-[10px] font-black text-accent tracking-[0.2em] uppercase mb-3">
+                          Uploading... {uploadProgress !== null ? `${uploadProgress}%` : ''}
+                      </div>
+                      <div className="w-full bg-accent/20 h-1 rounded-full overflow-hidden">
+                          <div 
+                              className="bg-accent h-1 rounded-full transition-all duration-300 ease-linear" 
+                              style={{ width: `${uploadProgress || 0}%` }}
+                          ></div>
+                      </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div>
@@ -325,7 +448,7 @@ export default function App() {
               </div>
 
               <div className="grid grid-cols-2 gap-4">
-                <Input label="Slug Identifier" name="id" value={formData.id} onChange={handleInputChange} />
+                <Input label="Slug Identifier" name="id" value={formData.id} onChange={handleInputChange} placeholder="Auto-generated if empty" />
                 <Input label="Ranking" type="number" name="rank" value={formData.rank} onChange={handleInputChange} />
               </div>
               
@@ -355,7 +478,7 @@ export default function App() {
                     <input type="file" className="hidden" onChange={handleFileChange} accept="image/*,video/*" />
                     Upload Media
                  </label>
-                 <button onClick={addSlide} className="flex-1 bg-accent text-white py-4 rounded-sm font-black text-[10px] uppercase tracking-widest hover:bg-red-700 transition-all shadow-[0_0_15px_rgba(230,25,25,0.2)]">
+                 <button onClick={addOrUpdateSlide} className="flex-1 bg-accent text-white py-4 rounded-sm font-black text-[10px] uppercase tracking-widest hover:bg-red-700 transition-all shadow-[0_0_15px_rgba(230,25,25,0.2)]">
                     Save Record
                  </button>
               </div>
@@ -370,20 +493,38 @@ export default function App() {
                 <div className="text-[10px] font-black text-accent uppercase tracking-widest">{slides.length} Units Active</div>
               </div>
               {slides.map(slide => (
-                <div key={slide.id} onClick={() => { setFormData(slide); setLocalPreview(null); setActiveTab('editor'); }} className="flex gap-5 p-4 bg-bg border border-border rounded-sm items-center cursor-pointer hover:border-accent/40 group transition-all">
-                   <div className="w-24 h-14 bg-input rounded-sm overflow-hidden shrink-0 relative border border-border group-hover:border-accent/30">
-                      {slide.posterType === 'video' ? <video src={slide.poster} className="w-full h-full object-cover" /> : <img src={slide.poster} className="w-full h-full object-cover" />}
+                <div key={slide.id} className="p-4 bg-bg border border-border rounded-sm group transition-all space-y-4">
+                   <div className="flex gap-5 items-center">
+                      <div className="w-24 h-14 bg-input rounded-sm overflow-hidden shrink-0 relative border border-border group-hover:border-accent/30 cursor-pointer" onClick={() => { setFormData(slide); setLocalPreview(null); setActiveTab('editor'); }}>
+                         {slide.posterType === 'video' ? <video src={slide.poster} className="w-full h-full object-cover" /> : <img src={slide.poster} className="w-full h-full object-cover" />}
+                      </div>
+                      <div className="flex-1 min-w-0 cursor-pointer" onClick={() => { setFormData(slide); setLocalPreview(null); setActiveTab('editor'); }}>
+                         <h4 className="text-white text-xs font-black uppercase tracking-wider truncate group-hover:text-accent transition-colors">{slide.title}</h4>
+                         <p className="text-zinc-600 text-[10px] font-mono tracking-tighter mt-1">{slide.id} | RANK #{slide.rank}</p>
+                      </div>
+                      <button onClick={(e) => { e.stopPropagation(); deleteSlide(slide.id); }} className="p-3 text-zinc-700 hover:text-accent transition-colors">
+                         <TrashIcon className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => publishSingleSlide(slide.id)} disabled={publishingSlideId === slide.id} className="p-3 text-zinc-700 hover:text-accent disabled:opacity-30 transition-colors">
+                        {publishingSlideId === slide.id ? <div className="w-4 h-4 border-2 border-accent/20 border-t-accent rounded-full animate-spin" /> : <CloudArrowUpIcon className="w-4 h-4" />}
+                      </button>
                    </div>
-                   <div className="flex-1 min-w-0">
-                      <h4 className="text-white text-xs font-black uppercase tracking-wider truncate group-hover:text-accent transition-colors">{slide.title}</h4>
-                      <p className="text-zinc-600 text-[10px] font-mono tracking-tighter mt-1">{slide.id} | RANK #{slide.rank}</p>
-                   </div>
-                   <button onClick={(e) => { e.stopPropagation(); if(confirm('Erase Record?')) setSlides(s => s.filter(i => i.id !== slide.id)); }} className="p-3 text-zinc-700 hover:text-accent transition-colors">
-                      <TrashIcon className="w-4 h-4" />
-                   </button>
+                   {slide.publishedUrl && (
+                    <div className="flex items-center gap-2 bg-input border border-border p-2 rounded-sm">
+                        <LinkIcon className="w-3 h-3 text-accent shrink-0 ml-1" />
+                        <input 
+                          readOnly 
+                          value={slide.publishedUrl} 
+                          className="flex-1 bg-transparent text-zinc-500 text-[10px] font-mono outline-none" 
+                        />
+                        <button onClick={() => copyUrlToClipboard(slide.publishedUrl)} title="Copy Direct URL" className="p-2 text-zinc-600 hover:text-white transition-colors">
+                          <ClipboardDocumentIcon className="w-4 h-4" />
+                        </button>
+                    </div>
+                   )}
                 </div>
               ))}
-              {slides.length === 0 && (
+              {slides.length === 0 && !isLibraryLoading && (
                 <div className="flex flex-col items-center justify-center h-64 border-2 border-dashed border-border rounded-sm">
                    <PlusIcon className="w-8 h-8 text-zinc-800 mb-2" />
                    <p className="text-zinc-700 text-[10px] font-black uppercase tracking-widest">Library Empty</p>
